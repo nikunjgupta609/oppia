@@ -55,8 +55,6 @@ from core.domain import state_domain
 from core.domain import stats_services
 from core.domain import story_domain
 from core.domain import story_services
-from core.domain import subtopic_page_domain
-from core.domain import subtopic_page_services
 from core.domain import topic_domain
 from core.domain import topic_fetchers
 from core.domain import topic_services
@@ -72,6 +70,17 @@ PLATFORM_PARAMS_TO_SHOW_IN_RC_PAGE = set([
     platform_parameter_list.ParamNames.PROMO_BAR_MESSAGE.value
 ])
 
+# Platform parameters that we plan to show on the blog admin page.
+PLATFORM_PARAMS_TO_SHOW_IN_BLOG_ADMIN_PAGE = set([
+    (
+        platform_parameter_list.ParamNames.
+        MAX_NUMBER_OF_TAGS_ASSIGNED_TO_BLOG_POST.value
+    )
+])
+
+supported_languages: List[str] = [
+    lang['id'] for lang in constants.SUPPORTED_AUDIO_LANGUAGES]
+
 
 class ClassroomPageDataDict(TypedDict):
     """Dict representation of classroom page's data dictionary."""
@@ -86,21 +95,6 @@ class ClassroomPageDataDict(TypedDict):
 AllowedAdminConfigPropertyValueTypes = Union[
     str, bool, float, Dict[str, str], List[str], ClassroomPageDataDict
 ]
-
-
-class AdminPage(
-    base.BaseHandler[Dict[str, str], Dict[str, str]]
-):
-    """Admin page shown in the App Engine admin console."""
-
-    URL_PATH_ARGS_SCHEMAS: Dict[str, str] = {}
-    HANDLER_ARGS_SCHEMAS: Dict[str, Dict[str, str]] = {'GET': {}}
-
-    @acl_decorators.can_access_admin_page
-    def get(self) -> None:
-        """Renders the admin page."""
-
-        self.render_template('admin-page.mainpage.html')
 
 
 class AdminHandlerNormalizePayloadDict(TypedDict):
@@ -260,18 +254,18 @@ class AdminHandler(
             feature_services.
             get_all_platform_parameters_except_feature_flag_dicts()
         )
-        # Removes promo-bar related platform params as promo-bar is handled by
-        # release coordinators in /release-coordinator page.
+        # Removes promo-bar related and blog related platform params as
+        # they are handled in release-coordinator page and blog admin page
+        # respectively.
         platform_params_dicts = [
             param for param in platform_params_dicts
-            if param['name'] not in PLATFORM_PARAMS_TO_SHOW_IN_RC_PAGE
+            if (
+                param['name'] not in PLATFORM_PARAMS_TO_SHOW_IN_RC_PAGE and
+                param['name'] not in PLATFORM_PARAMS_TO_SHOW_IN_BLOG_ADMIN_PAGE
+            )
         ]
 
         config_properties = config_domain.Registry.get_config_property_schemas()
-
-        # Remove blog related configs as they will be handled by 'blog admins'
-        # on blog admin page.
-        del config_properties['max_number_of_tags_assigned_to_blog_post']
 
         self.render_json({
             'config_properties': config_properties,
@@ -626,13 +620,18 @@ class AdminHandler(
                     'User does not have enough rights to generate data.')
             topic_id_1 = topic_fetchers.get_new_topic_id()
             topic_id_2 = topic_fetchers.get_new_topic_id()
+
             story_id = story_services.get_new_story_id()
+
             skill_id_1 = skill_services.get_new_skill_id()
             skill_id_2 = skill_services.get_new_skill_id()
             skill_id_3 = skill_services.get_new_skill_id()
+
             question_id_1 = question_services.get_new_question_id()
             question_id_2 = question_services.get_new_question_id()
             question_id_3 = question_services.get_new_question_id()
+            question_id_4 = question_services.get_new_question_id()
+            question_id_5 = question_services.get_new_question_id()
 
             skill_1 = self._create_dummy_skill(
                 skill_id_1, 'Dummy Skill 1', '<p>Dummy Explanation 1</p>')
@@ -647,12 +646,23 @@ class AdminHandler(
                 question_id_2, 'Question 2', [skill_id_2])
             question_3 = self._create_dummy_question(
                 question_id_3, 'Question 3', [skill_id_3])
+            question_4 = self._create_dummy_question(
+                question_id_4, 'Question 4', [skill_id_1])
+            question_5 = self._create_dummy_question(
+                question_id_5, 'Question 5', [skill_id_1])
+
             question_services.add_question(self.user_id, question_1)
+            question_services.add_question(self.user_id, question_4)
+            question_services.add_question(self.user_id, question_5)
             question_services.add_question(self.user_id, question_2)
             question_services.add_question(self.user_id, question_3)
 
             question_services.create_new_question_skill_link(
                 self.user_id, question_id_1, skill_id_1, 0.3)
+            question_services.create_new_question_skill_link(
+                self.user_id, question_id_4, skill_id_1, 0.3)
+            question_services.create_new_question_skill_link(
+                self.user_id, question_id_5, skill_id_1, 0.3)
             question_services.create_new_question_skill_link(
                 self.user_id, question_id_2, skill_id_2, 0.5)
             question_services.create_new_question_skill_link(
@@ -661,21 +671,21 @@ class AdminHandler(
             topic_1 = topic_domain.Topic.create_default_topic(
                 topic_id_1, 'Dummy Topic 1', 'dummy-topic-one', 'description',
                 'fragm')
+            topic_1.skill_ids_for_diagnostic_test = [skill_id_1]
+            topic_1.thumbnail_filename = 'thumbnail.svg'
+            topic_1.thumbnail_bg_color = '#C6DCDA'
+            topic_1.subtopics = [
+                topic_domain.Subtopic(
+                    1, 'Title', [skill_id_1], 'image.svg',
+                    constants.ALLOWED_THUMBNAIL_BG_COLORS['subtopic'][0], 21131,
+                    'dummy-subtopic-three')]
+            topic_1.next_subtopic_id = 2
+            topic_1.add_canonical_story(story_id)
+
             topic_2 = topic_domain.Topic.create_default_topic(
                 topic_id_2, 'Empty Topic', 'empty-topic', 'description',
                 'fragm')
 
-            topic_1.add_canonical_story(story_id)
-            topic_1.add_uncategorized_skill_id(skill_id_1)
-            topic_1.add_uncategorized_skill_id(skill_id_2)
-            topic_1.add_uncategorized_skill_id(skill_id_3)
-            topic_1.add_subtopic(1, 'Dummy Subtopic Title', 'dummysubtopic')
-            topic_1.move_skill_id_to_subtopic(None, 1, skill_id_2)
-            topic_1.move_skill_id_to_subtopic(None, 1, skill_id_3)
-
-            subtopic_page = (
-                subtopic_page_domain.SubtopicPage.create_default_subtopic_page(
-                    1, topic_id_1))
             # These explorations were chosen since they pass the validations
             # for published stories.
             self._reload_exploration('6')
@@ -762,16 +772,8 @@ class AdminHandler(
             skill_services.save_new_skill(self.user_id, skill_3)
             story_services.save_new_story(self.user_id, story)
             topic_services.save_new_topic(self.user_id, topic_1)
+            topic_services.publish_topic(topic_id_1, self.user_id)
             topic_services.save_new_topic(self.user_id, topic_2)
-            subtopic_page_services.save_subtopic_page(
-                self.user_id, subtopic_page, 'Added subtopic',
-                [topic_domain.TopicChange({
-                    'cmd': topic_domain.CMD_ADD_SUBTOPIC,
-                    'subtopic_id': 1,
-                    'title': 'Dummy Subtopic Title',
-                    'url_fragment': 'dummy-fragment'
-                })]
-            )
 
             # Generates translation opportunities for the Contributor Dashboard.
             exp_ids_in_story = story.story_contents.get_all_linked_exp_ids()
@@ -1236,7 +1238,7 @@ class AdminRoleHandler(
         }
     }
 
-    @acl_decorators.can_access_admin_page
+    @acl_decorators.open_access
     def get(self) -> None:
         """Retrieves information about users based on different filter
         criteria to populate the roles tab.
@@ -1301,13 +1303,20 @@ class AdminRoleHandler(
             user_settings = user_services.get_user_settings(user_id)
             user_roles = user_settings.roles
             managed_topic_ids = []
+            coordinated_language_ids = []
             if feconf.ROLE_ID_TOPIC_MANAGER in user_roles:
                 managed_topic_ids = [
                     rights.id for rights in
                     topic_fetchers.get_topic_rights_with_user(user_id)]
+            if feconf.ROLE_ID_TRANSLATION_COORDINATOR in user_roles:
+                coordinated_language_ids = [
+                    rights.language_id for rights in
+                    user_services.get_translation_rights_with_user(
+                        user_id)]
             user_roles_dict = {
                 'roles': user_roles,
                 'managed_topic_ids': managed_topic_ids,
+                'coordinated_language_ids': coordinated_language_ids,
                 'banned': user_settings.banned
             }
             self.render_json(user_roles_dict)
@@ -1364,6 +1373,10 @@ class AdminRoleHandler(
 
         if role == feconf.ROLE_ID_TOPIC_MANAGER:
             topic_services.deassign_user_from_all_topics(self.user, user_id)
+
+        if role == feconf.ROLE_ID_TRANSLATION_COORDINATOR:
+            user_services.deassign_user_from_all_languages(
+                self.user, user_id)
 
         user_services.remove_user_role(user_id, role)
 
@@ -2070,4 +2083,90 @@ class UpdateBlogPostHandler(
 
         blog_services.update_blog_models_author_and_published_on_date(
             blog_post_id, author_id, published_on)
+        self.render_json({})
+
+
+class TranslationCoordinatorRoleHandlerNormalizedPayloadDict(TypedDict):
+    """Dict representation of TranslationCoordinatorRoleHandler's
+    normalized_payload dictionary.
+    """
+
+    username: str
+    action: str
+    language_id: str
+
+
+class TranslationCoordinatorRoleHandler(
+    base.BaseHandler[
+        TranslationCoordinatorRoleHandlerNormalizedPayloadDict, Dict[str, str]
+    ]
+):
+    """Handler to assign or deassigning coordinator to a language."""
+
+    GET_HANDLER_ERROR_RETURN_TYPE = feconf.HANDLER_TYPE_JSON
+    URL_PATH_ARGS_SCHEMAS: Dict[str, str] = {}
+    HANDLER_ARGS_SCHEMAS = {
+        'PUT': {
+            'username': {
+                'schema': {
+                    'type': 'basestring'
+                }
+            },
+            'action': {
+                'schema': {
+                    'type': 'basestring',
+                    'choices': ['assign', 'deassign']
+                }
+            },
+            'language_id': {
+                'schema': {
+                    'type': 'basestring',
+                    'choices': supported_languages
+                }
+            }
+        }
+    }
+
+    @acl_decorators.can_access_admin_page
+    def put(self) -> None:
+        """Adds or removes the translation-coordinator role for a user in the
+        context of a specific language.
+
+        Raises:
+            InvalidInputException. User with given username does not exist.
+        """
+        assert self.normalized_payload is not None
+        username = self.normalized_payload['username']
+        action = self.normalized_payload['action']
+        language_id = self.normalized_payload['language_id']
+
+        user_settings = user_services.get_user_settings_from_username(username)
+
+        if user_settings is None:
+            raise self.InvalidInputException(
+                'User with given username does not exist.')
+
+        user_id = user_settings.user_id
+        if action == 'assign':
+            if not feconf.ROLE_ID_TRANSLATION_COORDINATOR in (
+                user_settings.roles):
+                user_services.add_user_role(
+                    user_id, feconf.ROLE_ID_TRANSLATION_COORDINATOR)
+
+            language_coordinator = user_services.get_user_actions_info(user_id)
+
+            user_services.assign_coordinator(
+                user_services.get_system_user(),
+                language_coordinator, language_id)
+        else:
+            # The handler schema defines the possible values of 'action'.
+            # If 'action' has a value other than those defined in the schema,
+            # a Bad Request error will be thrown. Hence, 'action' must be
+            # 'deassign' if this branch is executed.
+            assert action == 'deassign'
+            language_coordinator = user_services.get_user_actions_info(user_id)
+            user_services.deassign_coordinator(
+                user_services.get_system_user(),
+                language_coordinator, language_id)
+
         self.render_json({})
